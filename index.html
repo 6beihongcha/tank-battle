@@ -255,11 +255,11 @@
             <div class="controls">
                 <div class="control-group">
                     <span class="control-title p1-color">🟢 玩家1</span>
-                    <span class="control-keys">移动: W A S D | 射击: F</span>
+                    <span class="control-keys">移动: W A S D | 射击: F / G</span>
                 </div>
                 <div class="control-group">
                     <span class="control-title p2-color">🔴 玩家2</span>
-                    <span class="control-keys">移动: ↑ ← ↓ → | 射击: /</span>
+                    <span class="control-keys">移动: ↑ ← ↓ → | 射击: / 或 .</span>
                 </div>
             </div>
             <button class="btn" id="restartBtn" onclick="restartGame()">🔄 重新开始</button>
@@ -552,7 +552,8 @@
                     life: 120,
                     color: this.color
                 });
-                this.shootCooldown = BULLET_COOLDOWN;
+                // 速射道具：冷却时间缩短为1/3
+                this.shootCooldown = this._rapidFire > 0 ? Math.floor(BULLET_COOLDOWN / 3) : BULLET_COOLDOWN;
             }
 
             destroy() {
@@ -569,13 +570,13 @@
                 let attempts = 0;
                 do {
                     if (this.playerNum === 1) {
-                        rx = 50 + Math.random() * (W / 2 - 150);
+                        rx = 60 + Math.random() * (W / 2 - 120);
                     } else {
-                        rx = W / 2 + 50 + Math.random() * (W / 2 - 200);
+                        rx = W / 2 + 60 + Math.random() * (W / 2 - 120);
                     }
                     ry = 50 + Math.random() * (H - 100);
                     attempts++;
-                } while (attempts < 50 && isPositionBlocked(rx, ry));
+                } while (attempts < 100 && isPositionBlocked(rx, ry, this));
 
                 this.x = rx;
                 this.y = ry;
@@ -740,18 +741,32 @@
                 py >= rect.y && py <= rect.y + rect.h;
         }
 
-        function isPositionBlocked(x, y) {
+        function isPositionBlocked(x, y, excludeTank) {
+            const margin = 12;
             const rect = {
-                x: x - TANK_SIZE / 2 - 4,
-                y: y - TANK_SIZE / 2 - 4,
-                w: TANK_SIZE + 8,
-                h: TANK_SIZE + 8
+                x: x - TANK_SIZE / 2 - margin,
+                y: y - TANK_SIZE / 2 - margin,
+                w: TANK_SIZE + margin * 2,
+                h: TANK_SIZE + margin * 2
             };
             for (const wall of walls) {
                 if (rectCollide(rect, wall)) return true;
             }
             for (const brick of bricks) {
                 if (rectCollide(rect, brick)) return true;
+            }
+            // 检查另一辆坦克的位置
+            if (excludeTank) {
+                const other = excludeTank === tank1 ? tank2 : tank1;
+                if (other.alive) {
+                    const otherRect = {
+                        x: other.x - TANK_SIZE / 2 - margin,
+                        y: other.y - TANK_SIZE / 2 - margin,
+                        w: TANK_SIZE + margin * 2,
+                        h: TANK_SIZE + margin * 2
+                    };
+                    if (rectCollide(rect, otherRect)) return true;
+                }
             }
             return false;
         }
@@ -791,8 +806,8 @@
         }
 
         // ==================== 创建坦克 ====================
-        let tank1 = new Tank(180, H / 2, 0, '#2ecc71', 1);
-        let tank2 = new Tank(W - 180, H / 2, Math.PI, '#e74c3c', 2);
+        let tank1 = new Tank(100, 80, Math.PI / 4, '#2ecc71', 1);
+        let tank2 = new Tank(W - 100, H - 80, -Math.PI * 3 / 4, '#e74c3c', 2);
 
         // ==================== 粒子绘制 ====================
         function updateAndDrawParticles() {
@@ -997,28 +1012,24 @@
             // 更新坦克速度(考虑道具)
             const t1Speed = tank1._speedBoost > 0 ? TANK_SPEED * 1.6 : TANK_SPEED;
             const t2Speed = tank2._speedBoost > 0 ? TANK_SPEED * 1.6 : TANK_SPEED;
-            const t1Cooldown = tank1._rapidFire > 0 ? BULLET_COOLDOWN / 3 : BULLET_COOLDOWN;
-            const t2Cooldown = tank2._rapidFire > 0 ? BULLET_COOLDOWN / 3 : BULLET_COOLDOWN;
 
             // 玩家1 控制 (WASD + F)
             tank1.speed = 0;
             tank1.rotation = 0;
-            if (keys['KeyW'] || keys['KeyW']) tank1.speed = t1Speed;
+            if (keys['KeyW']) tank1.speed = t1Speed;
             if (keys['KeyS']) tank1.speed = -t1Speed;
             if (keys['KeyA']) tank1.rotation = -1;
             if (keys['KeyD']) tank1.rotation = 1;
-            if (keys['KeyF']) tank1.shoot();
-            tank1.shootCooldown = Math.max(tank1.shootCooldown, BULLET_COOLDOWN - t1Cooldown + BULLET_COOLDOWN);
+            if (keys['KeyF'] || keys['KeyG']) tank1.shoot();
 
-            // 玩家2 控制 (方向键 + /)
+            // 玩家2 控制 (方向键 + / 或 .)
             tank2.speed = 0;
             tank2.rotation = 0;
             if (keys['ArrowUp']) tank2.speed = t2Speed;
             if (keys['ArrowDown']) tank2.speed = -t2Speed;
             if (keys['ArrowLeft']) tank2.rotation = -1;
             if (keys['ArrowRight']) tank2.rotation = 1;
-            if (keys['Slash'] || keys['Period']) tank2.shoot();
-            tank2.shootCooldown = Math.max(tank2.shootCooldown, BULLET_COOLDOWN - t2Cooldown + BULLET_COOLDOWN);
+            if (keys['Slash'] || keys['Period'] || keys['NumpadDivide'] || keys['NumpadDecimal']) tank2.shoot();
 
             // 道具效果计时
             if (tank1._speedBoost !== undefined) {
@@ -1220,8 +1231,8 @@
             powerUpTimer = 300;
             bricks = bricks.map(b => ({ ...b, hp: 2 })); // 修复砖块
 
-            tank1 = new Tank(180, H / 2, 0, '#2ecc71', 1);
-            tank2 = new Tank(W - 180, H / 2, Math.PI, '#e74c3c', 2);
+            tank1 = new Tank(100, 80, Math.PI / 4, '#2ecc71', 1);
+            tank2 = new Tank(W - 100, H - 80, -Math.PI * 3 / 4, '#e74c3c', 2);
 
             updateScoreDisplay();
             document.getElementById('timer').textContent = gameTime;
